@@ -107,6 +107,9 @@ function WorkflowCanvasInner() {
         
         if (run.status !== 'RUNNING') {
           clearInterval(pollInterval)
+          // Ensure UI stops showing executing state after the run ends
+          const state = useWorkflowStore.getState()
+          state.nodes.forEach((n) => state.setNodeExecuting(n.id, false))
           loadHistory()
         }
       } catch (err) {

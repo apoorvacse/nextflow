@@ -60,7 +60,27 @@ export default function RightSidebar() {
 }
 
 function RunEntryItem({ run, isExpanded, onToggle, expandedNodes, toggleNode }: { run: RunEntry, isExpanded: boolean, onToggle: () => void, expandedNodes: Set<string>, toggleNode: (id: string) => void }) {
-  const statusColor = run.status === 'success' ? 'bg-emerald-900/40 text-emerald-400' : run.status === 'failed' ? 'bg-red-900/40 text-red-400' : 'bg-yellow-900/40 text-yellow-400'
+  const normalizeStatus = (status: any): 'success' | 'failed' | 'running' | 'pending' => {
+    const s = String(status ?? '').toUpperCase()
+    if (s === 'SUCCESS' || s === 'success') return 'success'
+    if (s === 'FAILED' || s === 'failed') return 'failed'
+    if (s === 'RUNNING' || s === 'PARTIAL' || s === 'running' || s === 'partial') return 'running'
+    return 'pending'
+  }
+
+  const anyRun = run as any
+  const displayStatus = normalizeStatus(anyRun.status)
+  const statusColor =
+    displayStatus === 'success'
+      ? 'bg-emerald-900/40 text-emerald-400'
+      : displayStatus === 'failed'
+        ? 'bg-red-900/40 text-red-400'
+        : displayStatus === 'running'
+          ? 'bg-yellow-900/40 text-yellow-400'
+          : 'bg-yellow-900/40 text-yellow-400'
+
+  const ts = anyRun.timestamp ?? anyRun.completedAt ?? anyRun.startedAt
+  const durationMs = typeof anyRun.duration === 'number' ? anyRun.duration : 0
 
   return (
     <div className="border-b border-[#1a1a1a]">
@@ -70,19 +90,19 @@ function RunEntryItem({ run, isExpanded, onToggle, expandedNodes, toggleNode }: 
       >
         <div className="flex items-center justify-between">
           <div className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded ${statusColor} flex items-center gap-1.5`}>
-            {run.status === 'running' && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />}
-            {run.status}
+            {displayStatus === 'running' && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />}
+            {displayStatus}
           </div>
           <div className="text-xs text-gray-500">
-            {new Date(run.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
           </div>
         </div>
         <div className="flex items-center justify-between mt-1">
           <div className="text-[10px] bg-[#1e1e1e] text-gray-400 rounded px-2 py-0.5 whitespace-nowrap">
-            Scope: {run.scope === 'full' ? 'Full Workflow' : run.scope === 'partial' ? 'Selected Nodes' : 'Single Node'}
+            Scope: {String(anyRun.scope ?? '').toLowerCase() === 'full' ? 'Full Workflow' : String(anyRun.scope ?? '').toLowerCase() === 'partial' ? 'Selected Nodes' : 'Single Node'}
           </div>
           <div className="text-[10px] text-gray-600">
-            {(run.duration / 1000).toFixed(1)}s total
+            {(durationMs / 1000).toFixed(1)}s total
           </div>
         </div>
       </div>
@@ -96,9 +116,9 @@ function RunEntryItem({ run, isExpanded, onToggle, expandedNodes, toggleNode }: 
                 onClick={() => toggleNode(`${run.id}-${node.nodeId}`)}
               >
                 <div className="flex items-center gap-2">
-                  {node.status === 'success' ? (
+                  {normalizeStatus((node as any).status) === 'success' ? (
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  ) : node.status === 'failed' ? (
+                  ) : normalizeStatus((node as any).status) === 'failed' ? (
                     <XCircle className="w-3.5 h-3.5 text-red-500" />
                   ) : (
                     <div className="w-3.5 h-3.5 rounded-full border-2 border-yellow-500 border-t-transparent animate-spin" />
@@ -106,7 +126,7 @@ function RunEntryItem({ run, isExpanded, onToggle, expandedNodes, toggleNode }: 
                   <span className="text-xs text-gray-300 font-medium group-hover:text-purple-400 transition-colors">{node.nodeLabel}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-gray-600">{(node.executionTime / 1000).toFixed(1)}s</span>
+                  <span className="text-[10px] text-gray-600">{(((node as any).executionTime ?? 0) / 1000).toFixed(1)}s</span>
                   {expandedNodes.has(`${run.id}-${node.nodeId}`) ? <ChevronDown className="w-3 h-3 text-gray-600 group-hover:text-gray-400" /> : <ChevronRight className="w-3 h-3 text-gray-600 group-hover:text-gray-400" />}
                 </div>
               </div>

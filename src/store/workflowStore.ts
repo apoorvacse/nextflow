@@ -287,7 +287,36 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
     collectUpstream(nodeId)
     const nodeIds = [...upstream, nodeId]
-    return get().runSelectedNodes(nodeIds)
+
+    // Run downstream node and its upstream dependencies, then poll until completion.
+    // This ensures the clicked node doesn't get stuck in "running" state.
+    const runId = await get().runSelectedNodes(nodeIds)
+
+    while (true) {
+      const run = await api.getRunStatus(runId)
+      run.nodeResults.forEach((nr: any) => {
+        if (nr.status === 'RUNNING') {
+          get().setNodeExecuting(nr.nodeId, true)
+        } else if (nr.status === 'SUCCESS') {
+          get().setNodeExecuting(nr.nodeId, false)
+          get().setNodeOutput(nr.nodeId, nr.output ?? '')
+        } else if (nr.status === 'FAILED') {
+          get().setNodeExecuting(nr.nodeId, false)
+          get().setNodeError(nr.nodeId, nr.error ?? 'Failed')
+        }
+      })
+
+      if (run.status !== 'RUNNING') {
+        // Final safety pass: stop executing for all nodes referenced by results.
+        run.nodeResults.forEach((nr: any) => get().setNodeExecuting(nr.nodeId, false))
+        await get().loadHistory()
+        break
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+    }
+
+    return runId
   },
 
   runAllNodes: async () => {
