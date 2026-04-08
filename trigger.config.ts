@@ -1,7 +1,7 @@
 import { defineConfig } from "@trigger.dev/sdk/v3";
 
 export default defineConfig({
-  project: "proj_nextflow", // Dummy project ID since we skipped API interactive linking
+  project: "proj_kzahizgypnaqhjndxjzi",
   runtime: "node",
   logLevel: "log",
   // Set the maxDuration to 300 seconds for tasks

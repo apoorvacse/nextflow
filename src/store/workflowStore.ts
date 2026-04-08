@@ -7,6 +7,7 @@ interface WorkflowState {
   nodes: Node[]
   edges: Edge[]
   selectedNodes: string[]
+  workflowId: string | null
   workflowName: string
   isSaving: boolean
   runHistory: RunEntry[]
@@ -53,6 +54,7 @@ interface WorkflowActions {
   pushHistoryState: () => void
   
   // Run functions
+  runSingleNode: (nodeId: string) => Promise<string>
   runSelectedNodes: (nodeIds: string[]) => Promise<string>
   runAllNodes: () => Promise<string>
   loadHistory: () => Promise<void>
@@ -64,6 +66,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   nodes: [],
   edges: [],
   selectedNodes: [],
+  workflowId: null,
   workflowName: 'Untitled Workflow',
   isSaving: false,
   runHistory: [],
@@ -180,19 +183,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   saveWorkflow: async () => {
     set({ isSaving: true })
     try {
-      await api.saveWorkflow({
+      const saved = await api.saveWorkflow({
+        id: get().workflowId ?? undefined,
         name: get().workflowName,
         nodes: get().nodes,
-        edges: get().edges
+        edges: get().edges,
       })
+      if (saved?.id) set({ workflowId: saved.id })
     } finally {
       set({ isSaving: false })
     }
   },
 
   loadWorkflow: async (id) => {
-    await api.loadWorkflow(id)
-    // mock for now
+    const wf = await api.loadWorkflow(id)
+    set({
+      workflowId: wf.id ?? id,
+      workflowName: wf.name ?? 'Untitled Workflow',
+      nodes: wf.nodes ?? [],
+      edges: wf.edges ?? [],
+      past: [],
+      future: [],
+    })
   },
 
   exportJSON: () => {
@@ -237,13 +249,15 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     
     // Optimistic set executing and save
     nodeIds.forEach(id => get().setNodeExecuting(id, true))
-    if (!get().workflowName || get().workflowName === 'Untitled Workflow') {
-       await get().saveWorkflow() // Ensures we have an ID or at least a record if needed
+    if (!get().workflowId) {
+      await get().saveWorkflow()
     }
+    const workflowId = get().workflowId
+    if (!workflowId) throw new Error('Workflow must be saved before execution.')
 
     // Call execution
     const res = await api.runNodes({
-      workflowId: 'temp', // Ideally from saved id
+      workflowId,
       nodes,
       edges,
       nodeIds,
@@ -253,13 +267,41 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     return res.runId
   },
 
+  runSingleNode: async (nodeId) => {
+    const { edges } = get()
+    const upstream = new Set<string>()
+    const visited = new Set<string>()
+
+    const collectUpstream = (currentId: string) => {
+      if (visited.has(currentId)) return
+      visited.add(currentId)
+
+      const incoming = edges.filter((e) => e.target === currentId)
+      for (const edge of incoming) {
+        if (!upstream.has(edge.source)) {
+          upstream.add(edge.source)
+          collectUpstream(edge.source)
+        }
+      }
+    }
+
+    collectUpstream(nodeId)
+    const nodeIds = [...upstream, nodeId]
+    return get().runSelectedNodes(nodeIds)
+  },
+
   runAllNodes: async () => {
     const { nodes, edges } = get()
     
     nodes.forEach(n => get().setNodeExecuting(n.id, true))
+    if (!get().workflowId) {
+      await get().saveWorkflow()
+    }
+    const workflowId = get().workflowId
+    if (!workflowId) throw new Error('Workflow must be saved before execution.')
     
     const res = await api.runNodes({
-      workflowId: 'temp',
+      workflowId,
       nodes,
       edges,
       scope: 'full'

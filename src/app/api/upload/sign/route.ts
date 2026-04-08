@@ -18,20 +18,20 @@ export async function POST(req: NextRequest) {
   const { fileType } = parsed.data
 
   const templateId = fileType === 'image' 
-    ? process.env.NEXT_PUBLIC_TRANSLOADIT_TEMPLATE_ID_IMAGE
-    : process.env.NEXT_PUBLIC_TRANSLOADIT_TEMPLATE_ID_VIDEO
+    ? process.env.TRANSLOADIT_TEMPLATE_ID_IMAGE
+    : process.env.TRANSLOADIT_TEMPLATE_ID_VIDEO
 
-  if (!templateId || !process.env.NEXT_PUBLIC_TRANSLOADIT_KEY || !process.env.TRANSLOADIT_SECRET) {
+  if (!templateId || !process.env.TRANSLOADIT_KEY || !process.env.TRANSLOADIT_SECRET) {
       return NextResponse.json({ error: 'Transloadit configuration missing' }, { status: 500 })
   }
 
   const params = JSON.stringify({
-    auth: { key: process.env.NEXT_PUBLIC_TRANSLOADIT_KEY, expires: new Date(Date.now() + 1800000).toISOString() },
+    auth: { key: process.env.TRANSLOADIT_KEY, expires: new Date(Date.now() + 1800000).toISOString() },
     template_id: templateId,
   })
 
-  const signature = 'sha256:' + crypto
-    .createHmac('sha256', process.env.TRANSLOADIT_SECRET)
+  const signature = 'sha384:' + crypto
+    .createHmac('sha384', process.env.TRANSLOADIT_SECRET)
     .update(Buffer.from(params, 'utf-8'))
     .digest('hex')
 

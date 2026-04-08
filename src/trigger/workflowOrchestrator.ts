@@ -52,14 +52,22 @@ export const workflowOrchestrator = task({
             let output: string | null = null
 
             if (node.type === 'llmNode') {
+              const systemPromptFromInputs = Array.isArray(inputs.system_prompt)
+                ? inputs.system_prompt.join('\n')
+                : (inputs.system_prompt as string | undefined)
+              const userMessageFromInputs = Array.isArray(inputs.user_message)
+                ? inputs.user_message.join('\n')
+                : (inputs.user_message as string | undefined)
+
               const result = await llmTask.triggerAndWait({
                 nodeId: node.id,
                 model: node.data.model ?? 'gemini-2.0-flash',
-                systemPrompt: inputs.system_prompt ?? node.data.systemPrompt ?? '',
-                userMessage: inputs.user_message ?? node.data.userMessage ?? '',
+                systemPrompt: systemPromptFromInputs ?? node.data.systemPrompt ?? '',
+                userMessage: userMessageFromInputs ?? node.data.userMessage ?? '',
                 imageUrls: inputs.images ? (Array.isArray(inputs.images) ? inputs.images : [inputs.images]) : [],
               })
-              output = result.output?.response ?? null
+              if (!result.ok) throw result.error
+              output = result.output.response ?? null
 
             } else if (node.type === 'cropImageNode') {
               const result = await cropImageTask.triggerAndWait({
@@ -69,14 +77,16 @@ export const workflowOrchestrator = task({
                 widthPercent: parseFloat((inputs.width_percent as string) ?? node.data.widthPercent ?? '100'),
                 heightPercent: parseFloat((inputs.height_percent as string) ?? node.data.heightPercent ?? '100'),
               })
-              output = result.output?.croppedUrl ?? null
+              if (!result.ok) throw result.error
+              output = result.output.croppedUrl ?? null
 
             } else if (node.type === 'extractFrameNode') {
               const result = await extractFrameTask.triggerAndWait({
                 videoUrl: (inputs.video_url as string) ?? node.data.videoUrl,
                 timestamp: (inputs.timestamp as string) ?? node.data.timestamp ?? '0',
               })
-              output = result.output?.frameUrl ?? null
+              if (!result.ok) throw result.error
+              output = result.output.frameUrl ?? null
 
             } else if (node.type === 'textNode') {
               output = node.data.text ?? ''

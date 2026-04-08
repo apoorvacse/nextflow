@@ -22,6 +22,7 @@ export const cropImageTask = task({
   retry: { maxAttempts: 2 },
   run: async (payload: CropPayload) => {
     const { imageUrl, xPercent, yPercent, widthPercent, heightPercent } = payload
+    if (!imageUrl) throw new Error('Missing imageUrl input')
 
     const response = await fetch(imageUrl)
     if (!response.ok) throw new Error(`Failed to download image: ${response.statusText}`)
@@ -29,7 +30,9 @@ export const cropImageTask = task({
 
     const tmpDir = os.tmpdir()
     const inputId = crypto.randomBytes(8).toString('hex')
-    const ext = imageUrl.split('.').pop()?.split('?')[0] ?? 'jpg'
+    const parsedUrl = new URL(imageUrl)
+    const extFromPath = path.extname(parsedUrl.pathname).replace('.', '').toLowerCase()
+    const ext = /^[a-z0-9]{2,5}$/.test(extFromPath) ? extFromPath : 'jpg'
     const inputPath = path.join(tmpDir, `crop-input-${inputId}.${ext}`)
     const outputPath = path.join(tmpDir, `crop-output-${inputId}.jpg`)
 
@@ -38,7 +41,9 @@ export const cropImageTask = task({
     const dimensions = await new Promise<{ width: number; height: number }>((resolve, reject) => {
       ffmpeg.ffprobe(inputPath, (err: Error | null, metadata: ffmpeg.FfprobeData) => {
         if (err) reject(err)
-        const stream = metadata?.streams?.find((s: ffmpeg.FfprobeStream) => s.codec_type === 'video')
+        const stream = metadata?.streams?.find((s: ffmpeg.FfprobeStream) =>
+          s.codec_type === 'video' || s.codec_type === 'image'
+        )
         resolve({ width: stream?.width ?? 1000, height: stream?.height ?? 1000 })
       })
     })
