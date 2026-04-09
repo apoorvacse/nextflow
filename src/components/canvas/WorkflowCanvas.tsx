@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useCallback, useRef, useState, useEffect } from 'react'
+import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   MiniMap,
@@ -46,6 +46,10 @@ const getId = () => `dndnode_${idCounter++}`
 function WorkflowCanvasInner() {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition } = useReactFlow()
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const memoNodeTypes = useMemo(() => nodeTypes, [])
+  const memoEdgeTypes = useMemo(() => edgeTypes, [])
   
   const {
     nodes,
@@ -89,6 +93,9 @@ function WorkflowCanvasInner() {
   )
 
   const startPolling = useCallback((runId: string) => {
+    // Single-flight polling: stop any previous poller first.
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current)
+
     const pollInterval = setInterval(async () => {
       try {
         const run = await api.getRunStatus(runId)
@@ -107,6 +114,7 @@ function WorkflowCanvasInner() {
         
         if (run.status !== 'RUNNING') {
           clearInterval(pollInterval)
+          pollIntervalRef.current = null
           // Ensure UI stops showing executing state after the run ends
           const state = useWorkflowStore.getState()
           state.nodes.forEach((n) => state.setNodeExecuting(n.id, false))
@@ -116,6 +124,7 @@ function WorkflowCanvasInner() {
         console.error("Polling error", err)
       }
     }, 1500)
+    pollIntervalRef.current = pollInterval
   }, [loadHistory])
 
   const handleRunAll = useCallback(async () => {
@@ -195,8 +204,8 @@ function WorkflowCanvasInner() {
         onConnect={handleConnect}
         onDrop={onDrop}
         onDragOver={onDragOver}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes as any}
+        nodeTypes={memoNodeTypes}
+        edgeTypes={memoEdgeTypes as any}
         defaultEdgeOptions={{ type: 'animated', style: { stroke: '#8b5cf6', strokeWidth: 2 } }}
         snapToGrid={false}
         proOptions={{ hideAttribution: true }}

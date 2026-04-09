@@ -41,8 +41,9 @@ function UploadImageNode({ id, data, selected }: { id: string, data: any, select
     try {
       const url = await api.uploadFile(file)
       clearInterval(interval)
-      updateNodeData(id, { uploading: false, progress: 100, uploadedUrl: url, file })
-    } catch (error) {
+      // Store only serializable metadata in node state (never the raw File object).
+      updateNodeData(id, { uploading: false, progress: 100, uploadedUrl: url, fileName: file.name, fileType: file.type })
+    } catch {
       clearInterval(interval)
       updateNodeData(id, { uploading: false, error: 'Upload failed' })
     }
@@ -50,7 +51,7 @@ function UploadImageNode({ id, data, selected }: { id: string, data: any, select
 
   const removeImage = (e: React.MouseEvent) => {
     e.stopPropagation()
-    updateNodeData(id, { uploadedUrl: null, file: null, progress: 0 })
+    updateNodeData(id, { uploadedUrl: null, fileName: null, fileType: null, progress: 0 })
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -86,7 +87,7 @@ function UploadImageNode({ id, data, selected }: { id: string, data: any, select
             <X className="w-3.5 h-3.5" />
           </button>
           <div className="w-full bg-[#111111] border-t border-[#2a2a2a] px-2 py-1.5 flex items-center justify-between">
-            <span className="text-[10px] text-gray-500 truncate max-w-[80%]">{data.file?.name || 'image'}</span>
+            <span className="text-[10px] text-gray-500 truncate max-w-[80%]">{data.fileName || 'image'}</span>
           </div>
         </div>
       )}

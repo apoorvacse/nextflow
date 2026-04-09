@@ -54,7 +54,7 @@ interface WorkflowActions {
   pushHistoryState: () => void
   
   // Run functions
-  runSingleNode: (nodeId: string) => Promise<string>
+  runSingleNode: (nodeId: string) => Promise<string | null>
   runSelectedNodes: (nodeIds: string[]) => Promise<string>
   runAllNodes: () => Promise<string>
   loadHistory: () => Promise<void>
@@ -248,49 +248,98 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     const { nodes, edges } = get()
     
     // Optimistic set executing and save
-    nodeIds.forEach(id => get().setNodeExecuting(id, true))
-    if (!get().workflowId) {
-      await get().saveWorkflow()
-    }
-    const workflowId = get().workflowId
-    if (!workflowId) throw new Error('Workflow must be saved before execution.')
+    const byId = new Map(nodes.map((n) => [n.id, n] as const))
+    const isExecutable = (n: Node | undefined) =>
+      !!n && !(n.type === 'uploadImageNode' || n.type === 'uploadVideoNode' || n.type === 'textNode')
 
-    // Call execution
-    const res = await api.runNodes({
-      workflowId,
-      nodes,
-      edges,
-      nodeIds,
-      scope: 'partial'
+    nodeIds.forEach((id) => {
+      if (isExecutable(byId.get(id))) get().setNodeExecuting(id, true)
     })
+    try {
+      if (!get().workflowId) {
+        await get().saveWorkflow()
+      }
+      const workflowId = get().workflowId
+      if (!workflowId) throw new Error('Workflow must be saved before execution.')
 
-    return res.runId
+      // Call execution
+      const res = await api.runNodes({
+        workflowId,
+        nodes,
+        edges,
+        nodeIds,
+        scope: 'partial'
+      })
+
+      return res.runId
+    } catch (err) {
+      // Roll back optimistic state if the request failed.
+      nodeIds.forEach(id => get().setNodeExecuting(id, false))
+      throw err
+    }
   },
 
   runSingleNode: async (nodeId) => {
-    const { edges } = get()
+    const { nodes, edges } = get()
+
+    // Collect all upstream dependencies for the clicked node.
     const upstream = new Set<string>()
     const visited = new Set<string>()
-
     const collectUpstream = (currentId: string) => {
       if (visited.has(currentId)) return
       visited.add(currentId)
-
       const incoming = edges.filter((e) => e.target === currentId)
       for (const edge of incoming) {
-        if (!upstream.has(edge.source)) {
-          upstream.add(edge.source)
-          collectUpstream(edge.source)
+        upstream.add(edge.source)
+        collectUpstream(edge.source)
+      }
+    }
+    collectUpstream(nodeId)
+
+    const upstreamNodes = [...upstream]
+      .map((id) => nodes.find((n) => n.id === id))
+      .filter(Boolean) as Node[]
+
+    // Preflight: Upload nodes can't be "auto-run" — they require user action.
+    // If the pipeline depends on them and they have no uploaded URL, fail fast with a clear error.
+    for (const n of upstreamNodes) {
+      if (n.type === 'uploadImageNode' || n.type === 'uploadVideoNode') {
+        const url = (n.data as any)?.uploadedUrl
+        if (!url || typeof url !== 'string') {
+          get().setNodeError(n.id, 'Please upload a file in this node first.')
+          return null
+        }
+      }
+      if (n.type === 'textNode') {
+        const txt = (n.data as any)?.text
+        if (typeof txt !== 'string' || txt.trim().length === 0) {
+          // Only flag if it’s actually wired into the chain (it is, since it's upstream).
+          get().setNodeError(n.id, 'Please enter text in this node first.')
+          return null
         }
       }
     }
 
-    collectUpstream(nodeId)
-    const nodeIds = [...upstream, nodeId]
+    // Always re-run upstream processing nodes to avoid stale outputs when inputs change.
+    // Upload/Text nodes are treated as provided inputs (they don't execute server-side).
+    const shouldRunAsDependency = (n: Node) =>
+      !(n.type === 'uploadImageNode' || n.type === 'uploadVideoNode' || n.type === 'textNode')
 
-    // Run downstream node and its upstream dependencies, then poll until completion.
-    // This ensures the clicked node doesn't get stuck in "running" state.
-    const runId = await get().runSelectedNodes(nodeIds)
+    const nodeIdsToRun = [...upstreamNodes.filter(shouldRunAsDependency).map((n) => n.id), nodeId]
+
+    let runId: string
+    try {
+      runId = await get().runSelectedNodes(nodeIdsToRun)
+    } catch (err: any) {
+      // Never let execution errors bubble to the browser as unhandled rejections.
+      nodeIdsToRun.forEach((id) => get().setNodeExecuting(id, false))
+      const message =
+        (err && typeof err === 'object' && 'message' in err && typeof err.message === 'string')
+          ? err.message
+          : 'Execution failed'
+      get().setNodeError(nodeId, message)
+      return null
+    }
 
     while (true) {
       const run = await api.getRunStatus(runId)
@@ -307,8 +356,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       })
 
       if (run.status !== 'RUNNING') {
-        // Final safety pass: stop executing for all nodes referenced by results.
-        run.nodeResults.forEach((nr: any) => get().setNodeExecuting(nr.nodeId, false))
+        // Final safety pass: stop executing for all nodes.
+        // Some nodes (e.g. Upload nodes) are not executed server-side and won't appear in nodeResults,
+        // but they may have been marked executing by previous runs.
+        get().nodes.forEach((n) => get().setNodeExecuting(n.id, false))
         await get().loadHistory()
         break
       }
@@ -322,7 +373,12 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   runAllNodes: async () => {
     const { nodes, edges } = get()
     
-    nodes.forEach(n => get().setNodeExecuting(n.id, true))
+    // Upload/Text nodes don't execute server-side; don't mark them as running.
+    nodes.forEach((n) => {
+      if (n.type !== 'uploadImageNode' && n.type !== 'uploadVideoNode' && n.type !== 'textNode') {
+        get().setNodeExecuting(n.id, true)
+      }
+    })
     if (!get().workflowId) {
       await get().saveWorkflow()
     }

@@ -15,25 +15,43 @@ interface OrchestratorPayload {
 export const workflowOrchestrator = task({
   id: 'workflow-orchestrator',
   run: async (payload: OrchestratorPayload) => {
-    const { runId, nodes, edges, nodeIds, userId } = payload
+    const { runId, nodes, edges, nodeIds } = payload
 
     const targetNodes = nodeIds
       ? nodes.filter(n => nodeIds.includes(n.id))
       : nodes
 
-    const relevantEdges = edges.filter(e =>
-      targetNodes.find(n => n.id === e.source) &&
-      targetNodes.find(n => n.id === e.target)
-    )
-
-    const layers = getExecutionLayers(targetNodes, relevantEdges)
-
     const nodeOutputs: Record<string, string> = {}
     const startTime = Date.now()
     let hasFailure = false
 
+    // Seed outputs from existing node data so partial runs can consume upstream values
+    // (e.g. uploaded URLs / text) without re-running those upstream nodes.
+    for (const n of nodes) {
+      const seeded =
+        (n?.type === 'uploadImageNode' || n?.type === 'uploadVideoNode')
+          ? (n?.data?.uploadedUrl ?? null)
+          : n?.type === 'textNode'
+            ? (n?.data?.text ?? '')
+            : (typeof n?.data?.output === 'string' ? n.data.output : null)
+
+      if (typeof seeded === 'string' && seeded.length > 0) {
+        nodeOutputs[n.id] = seeded
+      }
+    }
+
+    const targetIdSet = new Set(targetNodes.map(n => n.id))
+    const seededIdSet = new Set(Object.keys(nodeOutputs))
+
+    // For layering, only consider dependencies within the target set.
+    const layerEdges = edges.filter(e => targetIdSet.has(e.source) && targetIdSet.has(e.target))
+    const layers = getExecutionLayers(targetNodes, layerEdges)
+
+    // For resolving inputs, allow sources outside the target set if we have a seeded output.
+    const inputEdges = edges.filter(e => targetIdSet.has(e.target) && (targetIdSet.has(e.source) || seededIdSet.has(e.source)))
+
     for (const layer of layers) {
-      const layerResults = await Promise.allSettled(
+      await Promise.allSettled(
         layer.map(async (node) => {
           const nodeStart = Date.now()
 
@@ -48,7 +66,10 @@ export const workflowOrchestrator = task({
           })
 
           try {
-            const inputs = resolveNodeInputs(node, relevantEdges, nodeOutputs)
+            // Fail fast when a connected upstream value is missing (upstream failed or not provided yet).
+            assertConnectedInputsPresent(node, inputEdges, nodeOutputs)
+
+            const inputs = resolveNodeInputs(node, inputEdges, nodeOutputs)
             let output: string | null = null
 
             if (node.type === 'llmNode') {
@@ -176,6 +197,31 @@ function getExecutionLayers(nodes: any[], edges: any[]): any[][] {
   }
 
   return layers
+}
+
+function assertConnectedInputsPresent(
+  node: any,
+  edges: any[],
+  nodeOutputs: Record<string, string>
+) {
+  const incoming = edges.filter((e) => e.target === node.id)
+  if (incoming.length === 0) return
+
+  const imageEdges = incoming.filter((e) => e.targetHandle === 'images')
+  if (imageEdges.length > 0) {
+    const anyPresent = imageEdges.some((e) => nodeOutputs[e.source] !== undefined)
+    if (!anyPresent) {
+      throw new Error('Missing input: images (connect an image output or upload an image)')
+    }
+  }
+
+  for (const e of incoming) {
+    if (e.targetHandle === 'images') continue
+    if (!e.targetHandle) continue
+    if (nodeOutputs[e.source] === undefined) {
+      throw new Error(`Missing input: ${e.targetHandle}`)
+    }
+  }
 }
 
 function resolveNodeInputs(

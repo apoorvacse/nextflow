@@ -39,9 +39,29 @@ export const api = {
   // History
   getHistory: async (workflowId?: string) => {
     const url = workflowId ? `/api/history?workflowId=${workflowId}` : '/api/history'
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(await res.text())
-    return res.json()
+    const fetchOnce = async () => {
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 15000)
+      try {
+        const res = await fetch(url, { signal: controller.signal })
+        if (!res.ok) throw new Error(await res.text())
+        return res.json()
+      } finally {
+        clearTimeout(timeout)
+      }
+    }
+
+    // On dev server startup or hot-reload, fetch can briefly fail; retry a couple times.
+    let lastErr: unknown
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await fetchOnce()
+      } catch (err) {
+        lastErr = err
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)))
+      }
+    }
+    throw lastErr
   },
 
   // Upload (Transloadit)
@@ -62,16 +82,32 @@ export const api = {
     if (!params || !signature) throw new Error('Upload signing failed')
 
     // Use Transloadit manual form upload
-    const formData = new FormData()
-    formData.append('params', params)
-    formData.append('signature', signature)
-    formData.append('file', file)
+    const postAssembly = async (fileFieldName: 'files' | 'file') => {
+      const formData = new FormData()
+      formData.append('params', params)
+      formData.append('signature', signature)
+      formData.append(fileFieldName, file)
 
-    const res = await fetch('https://api2.transloadit.com/assemblies', {
-      method: 'POST',
-      body: formData,
-    })
-    const assembly = await res.json().catch(() => ({} as any))
+      const res = await fetch('https://api2.transloadit.com/assemblies', {
+        method: 'POST',
+        body: formData,
+      })
+      const assembly = await res.json().catch(() => ({} as any))
+      return { res, assembly }
+    }
+
+    // Retry once on transient 5xx from Transloadit
+    let { res, assembly } = await postAssembly('files')
+    if (!res.ok && res.status >= 500) {
+      await new Promise((r) => setTimeout(r, 800))
+      ;({ res, assembly } = await postAssembly('files'))
+    }
+
+    // Some templates expect the incoming upload field to be named "file" (not "files").
+    if (!res.ok && res.status === 400) {
+      ;({ res, assembly } = await postAssembly('file'))
+    }
+
     if (!res.ok) {
       const message =
         typeof assembly?.error === 'string'

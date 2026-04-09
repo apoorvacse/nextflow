@@ -25,8 +25,8 @@ function LLMNode({ id, data, selected }: { id: string, data: any, selected: bool
     }
   }
 
-  // Model selector default to gemini 2.0 flash
-  const model = data.model || 'Gemini 2.0 Flash'
+  // Model selector defaults to OpenRouter (configured default) or free router
+  const model = data.model || 'google/gemma-4-31b-it:free'
 
   return (
     <NodeWrapper id={id} title="Run LLM" icon={Bot} selected={selected} executing={data.executing} error={data.error}>
@@ -40,6 +40,9 @@ function LLMNode({ id, data, selected }: { id: string, data: any, selected: bool
           value={model}
           onChange={(e) => updateNodeData(id, { model: e.target.value })}
         >
+          <option value="openrouter/free">OpenRouter (Free Router)</option>
+          <option value="google/gemma-4-31b-it:free">Gemma 4 31B IT (free)</option>
+          <option value="meta-llama/llama-3.2-3b-instruct:free">Llama 3.2 3B Instruct (free)</option>
           <option>Gemini 2.0 Flash</option>
           <option>Gemini 2.0 Flash Thinking</option>
           <option>Gemini 1.5 Pro</option>
