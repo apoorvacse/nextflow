@@ -72,10 +72,11 @@ export const workflowOrchestrator = task({
             } else if (node.type === 'cropImageNode') {
               const result = await cropImageTask.triggerAndWait({
                 imageUrl: (inputs.image_url as string) ?? node.data.imageUrl,
-                xPercent: parseFloat((inputs.x_percent as string) ?? node.data.xPercent ?? '0'),
-                yPercent: parseFloat((inputs.y_percent as string) ?? node.data.yPercent ?? '0'),
-                widthPercent: parseFloat((inputs.width_percent as string) ?? node.data.widthPercent ?? '100'),
-                heightPercent: parseFloat((inputs.height_percent as string) ?? node.data.heightPercent ?? '100'),
+                // UI stores these as snake_case keys (x_percent, etc)
+                xPercent: parseFloat((inputs.x_percent as string) ?? node.data.x_percent ?? '0'),
+                yPercent: parseFloat((inputs.y_percent as string) ?? node.data.y_percent ?? '0'),
+                widthPercent: parseFloat((inputs.width_percent as string) ?? node.data.width_percent ?? '100'),
+                heightPercent: parseFloat((inputs.height_percent as string) ?? node.data.height_percent ?? '100'),
               })
               if (!result.ok) throw result.error
               output = result.output.croppedUrl ?? null
