@@ -51,105 +51,103 @@ export const workflowOrchestrator = task({
     const inputEdges = edges.filter(e => targetIdSet.has(e.target) && (targetIdSet.has(e.source) || seededIdSet.has(e.source)))
 
     for (const layer of layers) {
-      await Promise.allSettled(
-        layer.map(async (node) => {
-          const nodeStart = Date.now()
+      // IMPORTANT: Trigger.dev does not support parallel waits (e.g. Promise.all around triggerAndWait).
+      // Execute nodes in a layer sequentially for reliability.
+      for (const node of layer) {
+        const nodeStart = Date.now()
 
-          const nodeResult = await prisma.nodeResult.create({
-            data: {
-              runId,
+        const nodeResult = await prisma.nodeResult.create({
+          data: {
+            runId,
+            nodeId: node.id,
+            nodeType: node.type,
+            nodeLabel: node.data?.label ?? node.type,
+            status: 'RUNNING',
+          }
+        })
+
+        try {
+          // Fail fast when a connected upstream value is missing (upstream failed or not provided yet).
+          assertConnectedInputsPresent(node, inputEdges, nodeOutputs)
+
+          const inputs = resolveNodeInputs(node, inputEdges, nodeOutputs)
+          let output: string | null = null
+
+          if (node.type === 'llmNode') {
+            const systemPromptFromInputs = Array.isArray(inputs.system_prompt)
+              ? inputs.system_prompt.join('\n')
+              : (inputs.system_prompt as string | undefined)
+            const userMessageFromInputs = Array.isArray(inputs.user_message)
+              ? inputs.user_message.join('\n')
+              : (inputs.user_message as string | undefined)
+
+            const result = await llmTask.triggerAndWait({
               nodeId: node.id,
-              nodeType: node.type,
-              nodeLabel: node.data?.label ?? node.type,
-              status: 'RUNNING',
+              model: node.data.model ?? 'gemini-2.0-flash',
+              systemPrompt: systemPromptFromInputs ?? node.data.systemPrompt ?? '',
+              userMessage: userMessageFromInputs ?? node.data.userMessage ?? '',
+              imageUrls: inputs.images ? (Array.isArray(inputs.images) ? inputs.images : [inputs.images]) : [],
+            })
+            if (!result.ok) throw result.error
+            output = result.output.response ?? null
+
+          } else if (node.type === 'cropImageNode') {
+            const result = await cropImageTask.triggerAndWait({
+              imageUrl: (inputs.image_url as string) ?? node.data.imageUrl,
+              // UI stores these as snake_case keys (x_percent, etc)
+              xPercent: parseFloat((inputs.x_percent as string) ?? node.data.x_percent ?? '0'),
+              yPercent: parseFloat((inputs.y_percent as string) ?? node.data.y_percent ?? '0'),
+              widthPercent: parseFloat((inputs.width_percent as string) ?? node.data.width_percent ?? '100'),
+              heightPercent: parseFloat((inputs.height_percent as string) ?? node.data.height_percent ?? '100'),
+            })
+            if (!result.ok) throw result.error
+            output = result.output.croppedUrl ?? null
+
+          } else if (node.type === 'extractFrameNode') {
+            const result = await extractFrameTask.triggerAndWait({
+              videoUrl: (inputs.video_url as string) ?? node.data.videoUrl,
+              timestamp: (inputs.timestamp as string) ?? node.data.timestamp ?? '0',
+            })
+            if (!result.ok) throw result.error
+            output = result.output.frameUrl ?? null
+
+          } else if (node.type === 'textNode') {
+            output = node.data.text ?? ''
+
+          } else if (node.type === 'uploadImageNode' || node.type === 'uploadVideoNode') {
+            output = node.data.uploadedUrl ?? null
+          }
+
+          if (output !== null) {
+            nodeOutputs[node.id] = output
+          }
+
+          const execTime = Date.now() - nodeStart
+          await prisma.nodeResult.update({
+            where: { id: nodeResult.id },
+            data: {
+              status: 'SUCCESS',
+              output,
+              completedAt: new Date(),
+              executionTime: execTime,
+              inputs,
             }
           })
 
-          try {
-            // Fail fast when a connected upstream value is missing (upstream failed or not provided yet).
-            assertConnectedInputsPresent(node, inputEdges, nodeOutputs)
-
-            const inputs = resolveNodeInputs(node, inputEdges, nodeOutputs)
-            let output: string | null = null
-
-            if (node.type === 'llmNode') {
-              const systemPromptFromInputs = Array.isArray(inputs.system_prompt)
-                ? inputs.system_prompt.join('\n')
-                : (inputs.system_prompt as string | undefined)
-              const userMessageFromInputs = Array.isArray(inputs.user_message)
-                ? inputs.user_message.join('\n')
-                : (inputs.user_message as string | undefined)
-
-              const result = await llmTask.triggerAndWait({
-                nodeId: node.id,
-                model: node.data.model ?? 'gemini-2.0-flash',
-                systemPrompt: systemPromptFromInputs ?? node.data.systemPrompt ?? '',
-                userMessage: userMessageFromInputs ?? node.data.userMessage ?? '',
-                imageUrls: inputs.images ? (Array.isArray(inputs.images) ? inputs.images : [inputs.images]) : [],
-              })
-              if (!result.ok) throw result.error
-              output = result.output.response ?? null
-
-            } else if (node.type === 'cropImageNode') {
-              const result = await cropImageTask.triggerAndWait({
-                imageUrl: (inputs.image_url as string) ?? node.data.imageUrl,
-                // UI stores these as snake_case keys (x_percent, etc)
-                xPercent: parseFloat((inputs.x_percent as string) ?? node.data.x_percent ?? '0'),
-                yPercent: parseFloat((inputs.y_percent as string) ?? node.data.y_percent ?? '0'),
-                widthPercent: parseFloat((inputs.width_percent as string) ?? node.data.width_percent ?? '100'),
-                heightPercent: parseFloat((inputs.height_percent as string) ?? node.data.height_percent ?? '100'),
-              })
-              if (!result.ok) throw result.error
-              output = result.output.croppedUrl ?? null
-
-            } else if (node.type === 'extractFrameNode') {
-              const result = await extractFrameTask.triggerAndWait({
-                videoUrl: (inputs.video_url as string) ?? node.data.videoUrl,
-                timestamp: (inputs.timestamp as string) ?? node.data.timestamp ?? '0',
-              })
-              if (!result.ok) throw result.error
-              output = result.output.frameUrl ?? null
-
-            } else if (node.type === 'textNode') {
-              output = node.data.text ?? ''
-
-            } else if (node.type === 'uploadImageNode' || node.type === 'uploadVideoNode') {
-              output = node.data.uploadedUrl ?? null
+        } catch (err: any) {
+          hasFailure = true
+          const execTime = Date.now() - nodeStart
+          await prisma.nodeResult.update({
+            where: { id: nodeResult.id },
+            data: {
+              status: 'FAILED',
+              error: err.message ?? 'Unknown error',
+              completedAt: new Date(),
+              executionTime: execTime,
             }
-
-            if (output !== null) {
-              nodeOutputs[node.id] = output
-            }
-
-            const execTime = Date.now() - nodeStart
-            await prisma.nodeResult.update({
-              where: { id: nodeResult.id },
-              data: {
-                status: 'SUCCESS',
-                output,
-                completedAt: new Date(),
-                executionTime: execTime,
-                inputs,
-              }
-            })
-            return { nodeId: node.id, success: true, output }
-
-          } catch (err: any) {
-            hasFailure = true
-            const execTime = Date.now() - nodeStart
-            await prisma.nodeResult.update({
-              where: { id: nodeResult.id },
-              data: {
-                status: 'FAILED',
-                error: err.message ?? 'Unknown error',
-                completedAt: new Date(),
-                executionTime: execTime,
-              }
-            })
-            return { nodeId: node.id, success: false, error: err.message }
-          }
-        })
-      )
+          })
+        }
+      }
     }
 
     const totalTime = Date.now() - startTime
