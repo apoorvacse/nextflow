@@ -36,6 +36,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# trigger.dev (local dev cache / bundles — do not commit)
+.trigger/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
