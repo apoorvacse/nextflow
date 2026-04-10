@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState } from 'react'
-import { Search, Type, ImagePlus, Video, Bot, Crop, Film } from 'lucide-react'
+import { Search, Type, ImagePlus, Video, Bot, Crop, Film, LayoutTemplate } from 'lucide-react'
 import { useWorkflowStore } from '@/store/workflowStore'
 import { sampleNodes, sampleEdges } from '@/data/sampleWorkflow'
 
@@ -33,7 +33,9 @@ export default function LeftSidebar({ width, collapsed }: { width?: number; coll
 
   return (
     <aside
-      className="bg-[#111111] border-r border-[#1e1e1e] flex flex-col h-full overflow-y-auto shrink-0 z-10 custom-scrollbar transition-[width] duration-200 ease-out"
+      className={`bg-[#111111] border-r border-[#1e1e1e] flex flex-col h-full shrink-0 z-10 transition-[width] duration-200 ease-out ${
+        collapsed ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'
+      }`}
       style={{ width: width ?? 260 }}
     >
       <div
@@ -74,8 +76,10 @@ export default function LeftSidebar({ width, collapsed }: { width?: number; coll
             >
               <node.icon className="w-4 h-4 text-purple-500 group-hover:scale-110 transition-transform" />
               <span
-                className={`text-sm font-medium text-gray-200 flex-1 truncate transition-all duration-200 ease-out ${
-                  collapsed ? 'opacity-0 w-0 -translate-x-1 pointer-events-none select-none' : 'opacity-100 w-auto translate-x-0'
+                className={`text-sm font-medium text-gray-200 truncate transition-all duration-200 ease-out ${
+                  collapsed
+                    ? 'flex-none opacity-0 w-0 -translate-x-1 pointer-events-none select-none'
+                    : 'flex-1 opacity-100 w-auto translate-x-0'
                 }`}
               >
                 {node.label}
@@ -106,10 +110,12 @@ export default function LeftSidebar({ width, collapsed }: { width?: number; coll
             collapsed ? 'px-3 justify-center' : 'px-4 justify-start gap-3'
           }`}
         >
-          <div className="w-2 h-2 rounded-full bg-purple-500" />
+          <LayoutTemplate className="w-4 h-4 text-purple-500" />
           <span
             className={`text-sm font-medium text-gray-200 transition-all duration-200 ease-out ${
-              collapsed ? 'opacity-0 w-0 -translate-x-1 pointer-events-none select-none' : 'opacity-100 w-auto translate-x-0'
+              collapsed
+                ? 'inline-flex opacity-0 w-0 -translate-x-1 pointer-events-none select-none'
+                : 'inline-flex opacity-100 w-auto translate-x-0'
             }`}
           >
             Sample Workflow
