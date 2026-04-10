@@ -5,7 +5,7 @@ import { History, RefreshCw, ChevronDown, ChevronRight, CheckCircle2, XCircle } 
 import { useWorkflowStore } from '@/store/workflowStore'
 import { RunEntry } from '@/types/workflow'
 
-export default function RightSidebar() {
+export default function RightSidebar({ width }: { width?: number }) {
   const { runHistory } = useWorkflowStore()
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set())
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set())
@@ -25,7 +25,10 @@ export default function RightSidebar() {
   }
 
   return (
-    <aside className="w-[320px] bg-[#111111] border-l border-[#1e1e1e] flex flex-col h-full overflow-hidden shrink-0 z-10 transition-colors">
+    <aside
+      className="bg-[#111111] border-l border-[#1e1e1e] flex flex-col h-full overflow-hidden shrink-0 z-10 transition-colors"
+      style={{ width: width ?? 320 }}
+    >
       <div className="flex items-center justify-between px-4 py-4 border-b border-[#1e1e1e]">
         <h2 className="text-sm font-semibold text-gray-200">Run History</h2>
         <button className="text-gray-500 hover:text-gray-300 transition-colors">

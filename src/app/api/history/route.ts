@@ -9,12 +9,27 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const workflowId = url.searchParams.get('workflowId')
 
-  const runs = await prisma.run.findMany({
-    where: { userId, ...(workflowId ? { workflowId } : {}) },
-    include: { nodeResults: true },
-    orderBy: { startedAt: 'desc' },
-    take: 50,
-  })
+  try {
+    const runs = await prisma.run.findMany({
+      where: { userId, ...(workflowId ? { workflowId } : {}) },
+      include: { nodeResults: true },
+      orderBy: { startedAt: 'desc' },
+      take: 50,
+    })
 
-  return NextResponse.json(runs)
+    return NextResponse.json(runs)
+  } catch (err: unknown) {
+    const e = err as any
+    const msg = typeof e?.message === 'string' ? e.message : 'Internal Server Error'
+    const code = typeof e?.code === 'string' ? e.code : undefined
+
+    if (code === 'P1001' || String(msg).includes('DatabaseNotReachable')) {
+      return NextResponse.json(
+        { error: 'Database unreachable. History temporarily unavailable.', code },
+        { status: 503 }
+      )
+    }
+
+    return NextResponse.json({ error: msg, code }, { status: 500 })
+  }
 }

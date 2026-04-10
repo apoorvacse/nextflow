@@ -44,6 +44,8 @@ export const api = {
       const timeout = setTimeout(() => controller.abort(), 15000)
       try {
         const res = await fetch(url, { signal: controller.signal })
+        // If DB is temporarily unreachable, treat history as empty so UI doesn't "break".
+        if (res.status === 503) return []
         if (!res.ok) throw new Error(await res.text())
         return res.json()
       } finally {
