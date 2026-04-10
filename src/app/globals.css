@@ -66,3 +66,36 @@ body {
   font-family: Arial, Helvetica, sans-serif;
   margin: 0;
 }
+
+/* React Flow controls (zoom in/out, fit view) */
+.react-flow__controls {
+  background: #111111;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: #111111 !important;
+  border: 0 !important;
+  border-bottom: 1px solid #2a2a2a !important;
+  color: #e5e7eb !important;
+  fill: #e5e7eb !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: 0 !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #1b1b1b !important;
+}
+
+.react-flow__controls-button:active {
+  background: #232323 !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+}
