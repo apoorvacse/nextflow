@@ -20,7 +20,10 @@ function getEnvFromFile(key: string): string | undefined {
   return undefined
 }
 
-const databaseUrl = getEnvFromFile('DATABASE_URL') ?? process.env.DATABASE_URL
+// Trigger.dev / Vercel inject DATABASE_URL at runtime. Reading .env from disk first can
+// override it with a wrong or dev-only URL bundled in the deploy context, breaking FK
+// checks (Run exists in Neon but not in the DB the worker actually uses).
+const databaseUrl = process.env.DATABASE_URL ?? getEnvFromFile('DATABASE_URL')
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient }
 

@@ -12,10 +12,50 @@ interface OrchestratorPayload {
   userId: string
 }
 
+function safeNodeId(node: any): string {
+  if (node?.id == null) return ''
+  return typeof node.id === 'string' ? node.id : String(node.id)
+}
+
+function safeNodeType(node: any): string {
+  const t = node?.type
+  if (t == null) return 'unknown'
+  return typeof t === 'string' ? t : String(t)
+}
+
+function safeNodeLabel(node: any): string {
+  const label = node?.data?.label
+  const fallback = node?.type
+  const raw = label ?? fallback
+  if (raw == null) return 'node'
+  return typeof raw === 'string' ? raw : String(raw)
+}
+
+/** Wait until the API-created Run row is visible (Neon / pooler can lag briefly). */
+async function waitForRunRecord(runId: string): Promise<void> {
+  const deadline = Date.now() + 12_000
+  let interval = 200
+  while (Date.now() < deadline) {
+    const found = await prisma.run.findUnique({
+      where: { id: runId },
+      select: { id: true },
+    })
+    if (found) return
+    await new Promise((r) => setTimeout(r, interval))
+    interval = Math.min(interval + 150, 800)
+  }
+  throw new Error(
+    `[nextflow] Run "${runId}" not found in this worker's database (foreign key would fail on node results). ` +
+      'Set DATABASE_URL in Trigger.dev Production to the same value as Vercel, and ensure it is not overridden by a local .env inside the deployment bundle.'
+  )
+}
+
 export const workflowOrchestrator = task({
   id: 'workflow-orchestrator',
   run: async (payload: OrchestratorPayload) => {
     const { runId, nodes, edges, nodeIds } = payload
+
+    await waitForRunRecord(runId)
 
     const targetNodes = nodeIds
       ? nodes.filter(n => nodeIds.includes(n.id))
@@ -59,9 +99,9 @@ export const workflowOrchestrator = task({
         const nodeResult = await prisma.nodeResult.create({
           data: {
             runId,
-            nodeId: node.id,
-            nodeType: node.type,
-            nodeLabel: node.data?.label ?? node.type,
+            nodeId: safeNodeId(node),
+            nodeType: safeNodeType(node),
+            nodeLabel: safeNodeLabel(node),
             status: 'RUNNING',
           }
         })
