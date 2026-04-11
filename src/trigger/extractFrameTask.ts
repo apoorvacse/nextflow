@@ -1,15 +1,11 @@
 import { task } from '@trigger.dev/sdk/v3'
 import ffmpeg from 'fluent-ffmpeg'
-import ffmpegPath from '@ffmpeg-installer/ffmpeg'
-import ffprobePath from '@ffprobe-installer/ffprobe'
 import { promises as fs } from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { uploadToTransloadit } from '@/lib/transloadit'
-
-ffmpeg.setFfmpegPath(ffmpegPath.path)
-ffmpeg.setFfprobePath(ffprobePath.path)
+import { configureFfmpegForTasks } from './ffmpegRuntime'
 
 interface ExtractFramePayload {
   videoUrl: string
@@ -20,6 +16,7 @@ export const extractFrameTask = task({
   id: 'extract-frame',
   retry: { maxAttempts: 2 },
   run: async (payload: ExtractFramePayload) => {
+    await configureFfmpegForTasks(ffmpeg)
     const { videoUrl, timestamp } = payload
 
     const response = await fetch(videoUrl)

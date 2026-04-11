@@ -1,15 +1,11 @@
 import { task } from '@trigger.dev/sdk/v3'
 import ffmpeg from 'fluent-ffmpeg'
-import ffmpegPath from '@ffmpeg-installer/ffmpeg'
-import ffprobePath from '@ffprobe-installer/ffprobe'
 import { promises as fs } from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import * as crypto from 'crypto'
 import { uploadToTransloadit } from '@/lib/transloadit'
-
-ffmpeg.setFfmpegPath(ffmpegPath.path)
-ffmpeg.setFfprobePath(ffprobePath.path)
+import { configureFfmpegForTasks } from './ffmpegRuntime'
 
 interface CropPayload {
   imageUrl: string
@@ -23,6 +19,7 @@ export const cropImageTask = task({
   id: 'crop-image',
   retry: { maxAttempts: 2 },
   run: async (payload: CropPayload) => {
+    await configureFfmpegForTasks(ffmpeg)
     const { imageUrl, xPercent, yPercent, widthPercent, heightPercent } = payload
     if (!imageUrl) throw new Error('Missing imageUrl input')
 
