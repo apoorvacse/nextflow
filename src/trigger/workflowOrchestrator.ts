@@ -31,31 +31,30 @@ function safeNodeLabel(node: any): string {
   return typeof raw === 'string' ? raw : String(raw)
 }
 
-/** Wait until the API-created Run row is visible (Neon / pooler can lag briefly). */
-async function waitForRunRecord(runId: string): Promise<void> {
-  const deadline = Date.now() + 12_000
-  let interval = 200
-  while (Date.now() < deadline) {
-    const found = await prisma.run.findUnique({
-      where: { id: runId },
-      select: { id: true },
-    })
-    if (found) return
-    await new Promise((r) => setTimeout(r, interval))
-    interval = Math.min(interval + 150, 800)
+function extractRunId(payload: OrchestratorPayload & Record<string, unknown>): string {
+  const raw = payload.runId ?? (payload as Record<string, unknown>)['run_id']
+  const s = typeof raw === 'string' ? raw.trim() : raw != null ? String(raw).trim() : ''
+  if (!s) {
+    throw new Error(
+      '[nextflow] workflow-orchestrator: missing runId in payload (cannot update run in the database).'
+    )
   }
-  throw new Error(
-    `[nextflow] Run "${runId}" not found in this worker's database (foreign key would fail on node results). ` +
-      'Set DATABASE_URL in Trigger.dev Production to the same value as Vercel, and ensure it is not overridden by a local .env inside the deployment bundle.'
-  )
+  return s
 }
 
 export const workflowOrchestrator = task({
   id: 'workflow-orchestrator',
   run: async (payload: OrchestratorPayload) => {
-    const { runId, nodes, edges, nodeIds } = payload
+    const runId = extractRunId(payload as OrchestratorPayload & Record<string, unknown>)
+    const { nodes, edges, nodeIds } = payload
 
-    await waitForRunRecord(runId)
+    const runRow = await prisma.run.findUnique({ where: { id: runId } })
+    if (!runRow) {
+      throw new Error(
+        `[nextflow] Run "${runId}" not found in this worker's database. ` +
+          'Use the same DATABASE_URL in Trigger.dev Production as in Vercel (Neon pooled URL is fine).'
+      )
+    }
 
     const targetNodes = nodeIds
       ? nodes.filter(n => nodeIds.includes(n.id))
